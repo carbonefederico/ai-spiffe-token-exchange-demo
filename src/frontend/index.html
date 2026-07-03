@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northstar Telco</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/config.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="public-header">
+        <div class="utility-nav">
+          <nav aria-label="Audience">
+            <a class="active" href="#">Personal</a>
+            <a href="#">Business</a>
+            <a href="#">Enterprise</a>
+          </nav>
+          <nav aria-label="Quick links">
+            <a href="#">Find a store</a>
+            <a href="#">Top up online</a>
+          </nav>
+        </div>
+        <div class="main-nav">
+          <div class="brand-lockup" aria-label="Northstar Telco">
+            <span class="brand-mark">N</span>
+          </div>
+          <nav aria-label="Main navigation">
+            <a href="#">Shop</a>
+            <a href="#">Why Northstar</a>
+            <a href="#">Support</a>
+          </nav>
+          <div class="nav-actions">
+            <button class="search-button" type="button" aria-label="Search"></button>
+            <button id="loginButton" class="login-icon-button" type="button">Login</button>
+            <button id="devLoginButton" class="secondary hidden" type="button">Dev login</button>
+            <button id="logoutButton" class="ghost hidden" type="button">Logout</button>
+          </div>
+        </div>
+      </header>
+
+      <section id="landingView" class="landing">
+        <div class="hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Home internet</p>
+            <h1>Fiber, mobile, and support made simple.</h1>
+            <p>
+              Get connected at home and on the move, then sign in to manage your account and talk to the AI assistant.
+            </p>
+            <div class="button-row">
+              <button class="primary hero-login-button" type="button">Sign in</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="homeView" class="home hidden">
+        <div class="page-title">
+          <div>
+            <p class="eyebrow">Account overview</p>
+            <h1>Welcome back<span id="firstNameGreeting"></span></h1>
+            <p id="usernameDisplay" class="username-display"></p>
+          </div>
+          <button id="openChatButton" class="primary" type="button">Open chatbot</button>
+        </div>
+
+        <div class="account-tabs" role="tablist" aria-label="Account sections">
+          <button id="overviewTab" class="account-tab active" type="button" role="tab" aria-selected="true" aria-controls="overviewPanel" data-tab="overview">Overview</button>
+          <button id="tokenFlowTab" class="account-tab" type="button" role="tab" aria-selected="false" aria-controls="tokenFlowPanel" data-tab="token-flow">Token flow</button>
+        </div>
+
+        <section id="overviewPanel" class="tab-panel" role="tabpanel" aria-labelledby="overviewTab">
+          <div class="metric-grid">
+            <article>
+              <span>Mobile data</span>
+              <strong>42.8 GB</strong>
+              <div class="meter"><span style="width: 68%"></span></div>
+              <small>68% of monthly allowance</small>
+            </article>
+            <article>
+              <span>Home fiber</span>
+              <strong>812 GB</strong>
+              <div class="meter teal"><span style="width: 52%"></span></div>
+              <small>52% of typical household use</small>
+            </article>
+            <article>
+              <span>Current bill</span>
+              <strong>EUR 76.45</strong>
+              <div class="meter amber"><span style="width: 84%"></span></div>
+              <small>Due Jun 27</small>
+            </article>
+            <article>
+              <span>Loyalty</span>
+              <strong>Gold</strong>
+              <div class="meter purple"><span style="width: 76%"></span></div>
+              <small>38 months active</small>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="usage-panel">
+              <div class="section-heading">
+                <h2>Usage mix</h2>
+                <span>Current cycle</span>
+              </div>
+              <div class="donut-row">
+                <div class="donut" aria-label="Usage consumption chart"></div>
+                <div class="legend">
+                  <span><i class="dot red"></i> Mobile data 68%</span>
+                  <span><i class="dot teal"></i> Home fiber 52%</span>
+                  <span><i class="dot amber"></i> Bill cycle 84%</span>
+                </div>
+              </div>
+            </section>
+            <section class="service-panel">
+              <div class="section-heading">
+                <h2>Service health</h2>
+                <span>Live</span>
+              </div>
+              <div class="health-list">
+                <div><strong>Mobile line</strong><span>Active</span></div>
+                <div><strong>Fiber gateway</strong><span>Online</span></div>
+                <div><strong>Area status</strong><span>No outages</span></div>
+              </div>
+            </section>
+            <section class="wide-panel">
+              <div class="section-heading">
+                <h2>Recommended action</h2>
+                <span>AI ready</span>
+              </div>
+              <p>Your mobile usage is trending higher than last month. Ask the assistant about plan options, latest bill, or payment status.</p>
+            </section>
+          </div>
+        </section>
+
+        <section id="tokenFlowPanel" class="tab-panel hidden" role="tabpanel" aria-labelledby="tokenFlowTab">
+          <section class="token-flow-section">
+            <div class="section-heading">
+              <div>
+                <h2>Token flow</h2>
+                <span>Five-step token journey</span>
+              </div>
+              <button id="refreshTokenHistoryButton" class="ghost compact" type="button">Refresh</button>
+            </div>
+            <div id="tokenHistory" class="token-history"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <aside id="chatDrawer" class="chat-drawer hidden" aria-label="AI chatbot">
+      <div class="chat-header">
+        <div>
+          <span class="eyebrow">AI assistant</span>
+          <h2>Northstar Support</h2>
+        </div>
+        <button id="closeChatButton" class="icon-button" type="button" aria-label="Close chatbot">x</button>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <form id="chatForm" class="chat-form">
+        <input id="chatInput" name="message" autocomplete="off" placeholder="Ask about your plan or bill" />
+        <button class="primary" type="submit">Send</button>
+      </form>
+    </aside>
+
+    <div id="claimsModal" class="claims-modal hidden" role="dialog" aria-modal="true" aria-labelledby="claimsModalTitle">
+      <div class="claims-modal-panel">
+        <div class="claims-modal-header">
+          <h2 id="claimsModalTitle">Token claims</h2>
+          <button id="closeClaimsModalButton" class="icon-button" type="button" aria-label="Close token claims">x</button>
+        </div>
+        <pre id="claimsModalBody"></pre>
+      </div>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

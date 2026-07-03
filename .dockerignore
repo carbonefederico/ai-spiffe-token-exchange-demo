@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.py[cod]
+.git
+.env
+.env.*
+deploy/k8s/local.yaml
+coverage
+dist
+build
+.DS_Store

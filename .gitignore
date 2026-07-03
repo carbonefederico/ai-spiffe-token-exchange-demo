@@ -1,0 +1,11 @@
+.venv/
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+coverage/
+dist/
+build/
+deploy/k8s/local.yaml

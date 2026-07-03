@@ -1,0 +1,257 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spiffe-token-exchange-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: portal
+  namespace: spiffe-token-exchange-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent
+  namespace: spiffe-token-exchange-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp
+  namespace: spiffe-token-exchange-demo
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telco-demo-config
+  namespace: spiffe-token-exchange-demo
+data:
+  AGENT_URL: "http://agent:3001"
+  MCP_URL: "http://mcp:3002/mcp"
+  MCP_ALLOWED_HOSTS: "mcp:* localhost:* 127.0.0.1:*"
+  ALLOWED_ORIGINS: "https://portal.example.com"
+  NODE_TLS_REJECT_UNAUTHORIZED: "1"
+  OPENAI_MODEL: "gpt-4.1-mini"
+  SPIFFE_TRUST_DOMAIN: "example.org"
+  SPIFFE_ENDPOINT_SOCKET: "/spiffe-workload-api/spire-agent.sock"
+  SPIFFE_JWT_SVID_AUDIENCE: "replace-with-pingfederate-jwt-svid-audience"
+  MCP_AUDIENCE: "spiffe://example.org/ns/spiffe-token-exchange-demo/sa/mcp"
+  API_OAUTH_CLIENT_ID: "spiffe://example.org/ns/spiffe-token-exchange-demo/sa/portal"
+  AGENT_OAUTH_CLIENT_ID: "spiffe://example.org/ns/spiffe-token-exchange-demo/sa/agent"
+  AGENT_TOKEN_EXCHANGE_SCOPE: "customer:profile:read customer:payments:read"
+  MCP_TOKEN_EXCHANGE_SCOPE: "customer:profile:read customer:payments:read"
+  OIDC_REDIRECT_URI: "https://portal.example.com/callback"
+  OIDC_SCOPES: "openid profile portal-api:chat customer:profile:read customer:payments:read"
+  OIDC_DISCOVERY_URI: "https://pingfederate.example.com/.well-known/openid-configuration"
+  OIDC_CLIENT_ID: "replace-with-browser-spa-client-id"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal
+  namespace: spiffe-token-exchange-demo
+spec:
+  selector:
+    app.kubernetes.io/name: portal
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: spiffe-token-exchange-demo
+spec:
+  selector:
+    app.kubernetes.io/name: agent
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp
+  namespace: spiffe-token-exchange-demo
+spec:
+  selector:
+    app.kubernetes.io/name: mcp
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: telco-demo-portal
+spec:
+  className: spire-spire
+  hint: telco-demo-portal
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-token-exchange-demo
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: portal
+  spiffeIDTemplate: spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: telco-demo-agent
+spec:
+  className: spire-spire
+  hint: telco-demo-agent
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-token-exchange-demo
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent
+  spiffeIDTemplate: spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: telco-demo-mcp
+spec:
+  className: spire-spire
+  hint: telco-demo-mcp
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-token-exchange-demo
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp
+  spiffeIDTemplate: spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: spiffe-token-exchange-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: portal
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: portal
+      containers:
+        - name: portal
+          image: registry.example.com/spiffe-token-exchange-demo/portal:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: telco-demo-config
+            - secretRef:
+                name: telco-demo-openai
+                optional: true
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: spiffe-token-exchange-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: agent
+      containers:
+        - name: agent
+          image: registry.example.com/spiffe-token-exchange-demo/agent:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: telco-demo-config
+          ports:
+            - containerPort: 3001
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp
+  namespace: spiffe-token-exchange-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: mcp
+      containers:
+        - name: mcp
+          image: registry.example.com/spiffe-token-exchange-demo/mcp:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: telco-demo-config
+          ports:
+            - containerPort: 3002
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
