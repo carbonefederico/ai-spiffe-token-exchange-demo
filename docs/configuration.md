@@ -193,6 +193,7 @@ Create one Token Exchange Processor Policy for the POC token exchange path.
 4. Select **Actor Token Required**, then click **Next**.
 5. On **Attribute Contract**, include:
    - `subject`: the end-user or original subject from the inbound subject token.
+   - `actor_subject`: the current actor subject from the SPIFFE JWT-SVID actor token.
    - `subject_act`: the previous `act` claim from the inbound subject token.
 6. On **Token Processor Mapping**, click **Map New Token Processor**.
 7. On **Token Types**:
@@ -203,11 +204,12 @@ Create one Token Exchange Processor Policy for the POC token exchange path.
 8. Skip additional **Attribute Sources & User Lookup** configuration for now.
 9. On **Contract Fulfillment**:
    - Map `subject` from the subject token processor `subject`.
+   - Map `actor_subject` from the actor token processor `subject`.
    - Map `subject_act` from the subject token processor `act`.
 10. Leave issuance criteria and the rest of the wizard at defaults unless your POC needs extra restrictions.
 11. Review, finish, and save the policy.
 
-The application sends a SPIFFE JWT-SVID as `actor_token` in the token exchange request. The TEPP validates that current actor token separately. The `tepp.subject_act` value is the previous actor chain from the inbound subject token and is used by the access token mapping to build the next `act` claim.
+The application sends a SPIFFE JWT-SVID as `actor_token` in the token exchange request. The TEPP validates that current actor token and exposes its SPIFFE ID through `tepp.actor_subject`. The `tepp.subject_act` value is the previous actor chain from the inbound subject token. The access token mapping uses both values to build the next `act` claim.
 
 ### Access Token Manager For Token Exchange
 
@@ -246,7 +248,7 @@ Map the Token Exchange Processor Policy contract into the access token manager t
    - The access token manager contract `act` attribute from an **Expression** value using this OGNL script:
 
      ```text
-     #curr = #this.get("context.ClientId") != null ? #this.get("context.ClientId").toString() : "",
+     #curr = #this.get("tepp.actor_subject") != null ? #this.get("tepp.actor_subject").toString() : "",
      #prev = #this.get("tepp.subject_act"),
      #agentType = #this.get("extproperties.AgentType") != null ? #this.get("extproperties.AgentType").toString() : null,
      #clientType = #this.get("extproperties.ClientType") != null ? #this.get("extproperties.ClientType").toString() : null,
@@ -258,7 +260,7 @@ Map the Token Exchange Processor Policy contract into the access token manager t
      #out
      ```
 
-     The expression sets the current actor to `context.ClientId`, optionally includes `AgentType` and `ClientType` from client extended properties, and nests the prior SPIFFE actor from `tepp.subject_act` under `act`.
+     The expression sets the current actor to the validated SPIFFE actor subject from `tepp.actor_subject`, optionally includes `AgentType` and `ClientType` from client extended properties, and nests the previous actor chain from `tepp.subject_act` under `act`.
 7. Leave issuance criteria and the rest of the wizard at defaults unless your POC needs extra restrictions.
 8. Review, finish, and save the mapping.
 
