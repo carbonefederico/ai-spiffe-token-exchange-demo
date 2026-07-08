@@ -1,6 +1,6 @@
 # Configuration
 
-This page includes configuration guidelines, not a full configuration tutorial. It starts from a running and configured local kind cluster, with SPIRE installed. The demo relies on Kubernetes, SPIRE, and PingFederate for the real token-exchange path; it is not a local-only development workflow.
+This page includes configuration guidelines, not a full configuration tutorial. It starts from a running and configured local Kind cluster, running on a Mac with SPIRE installed. The demo relies on Kubernetes, SPIRE, and PingFederate for the real token-exchange path; it is not a local-only development workflow.
 
 ## Starting Assumptions
 
@@ -55,7 +55,9 @@ Edit `deploy/k8s/local.yaml` for the local cluster, PingFederate issuer, browser
 
 ## Kubernetes Manifest Values
 
-The generic deployment template is `deploy/k8s/base.yaml`. For local kind work, edit `deploy/k8s/local.yaml` and keep these values consistent:
+The generic deployment template is `deploy/k8s/base.yaml`. It already includes the full ConfigMap key set used by the application and by this guide, but the checked-in values are generic placeholders such as `example.org`, `portal.example.com`, and `replace-with-*`.
+
+For local kind work, edit `deploy/k8s/local.yaml` and keep these values consistent:
 
 | ConfigMap key | Local kind value | Purpose |
 | --- | --- | --- |
@@ -111,42 +113,180 @@ PingFederate must provide three things for this demo:
 
 1. Browser Authorization Code + PKCE login for the SPA.
 2. JWT access tokens with audiences and scopes that match the services.
-3. RFC 8693 token exchange where the subject token is an OAuth access token and the actor token is a SPIRE JWT-SVID.
+3. RFC 8693 token exchange where the subject token is a PingFederate-issued OAuth access token.
 
-### Browser SPA Client
+The token exchange configuration has four major PingFederate components, plus the access token manager instance that issues the exchanged JWTs:
 
-Create a public browser client for the portal UI:
+- Token Processor instances validate inbound subject and actor tokens.
+- The Token Exchange Processor Policy selects the Token Processors and publishes a small policy contract.
+- The Access Token Manager issues exchanged JWT access tokens and selects on resource URIs.
+- Access Token Mapping maps the processor policy contract into the access token manager contract.
+- OAuth Client configuration enables the Token Exchange grant and binds the client to the processor policy.
 
-- Client authentication: `none`.
-- Grant type: Authorization Code.
-- PKCE: required.
-- Redirect URI: `http://localhost:3000/callback` for port-forwarded local kind access.
-- Allowed origins or CORS: include `http://localhost:3000`.
-- Scopes: `openid`, `profile`, `portal-api:chat`, `customer:profile:read`, and `customer:payments:read`.
-- Token audience for portal API: `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/portal`.
+PingFederate 13.1 documentation describes OAuth token exchange configuration as processor policies, token generator or access token manager mappings, and OAuth clients. For this demo, use the access token manager path because token exchange issues OAuth access tokens. The relevant Ping docs are:
 
-The browser redeems the authorization code directly at PingFederate. PingFederate must allow browser CORS to its token endpoint from the portal origin.
+- [Configuring OAuth token exchange](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_config_oauth_token_exchange.html)
+- [Managing token processors](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_managing_token_processors.html)
+- [Configuring a JWT Token Processor 2.0 instance](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_configuring_jwt_token_processor_20_instance.html)
+- [Defining token exchange processor policies](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_defining_token_exchange_processor_policies.html)
+- [Managing access token management instances](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/help_accesstokenmanagementtasklet_accesstokenmanagementstate.html)
+- [Managing resource URIs](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/help_beareraccesstokenmgmtplugintasklet_atmselectionsettingsstate.html)
+- [Defining the access token attribute contract](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_defining_access_token_attribute_contract.html)
+- [Mapping token exchange attributes to access token manager attributes](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_mapp_token_exchang_attribut_to_access_token_manager_attribut.html)
+- [Enabling token exchange in OAuth clients](https://docs.pingidentity.com/pingfederate/13.1/administrators_reference_guide/pf_enabl_token_exchang_oauth_client.html)
 
-### Token Exchange Clients
+### Web App OAuth Client
+
+Configure the portal web app in PingFederate the usual OIDC way for a browser-facing application. The detailed web app setup is intentionally separate from this token-exchange guide.
+
+At a high level, the portal web app needs:
+
+- Authorization Code with PKCE.
+- Redirect URI matching `OIDC_REDIRECT_URI`, for example `http://localhost:3000/callback` when using port-forwarding.
+- Browser origin/CORS matching `ALLOWED_ORIGINS`, for example `http://localhost:3000`.
+- Scopes matching `OIDC_SCOPES`.
+- Access tokens whose audience matches the portal API expectation, `API_OAUTH_CLIENT_ID`.
+
+The browser redeems the authorization code directly at PingFederate. This token is issued to the web portal and becomes the `subject_token` for the first token exchange. The token that PingFederate issues to the agent becomes the `subject_token` for the second token exchange. Both are PingFederate-issued access tokens, so their issuer, JWKS, and audiences must match the subject Token Processor instance below.
+
+### Token Processor Instances
+
+Create two Token Processor instances: one for inbound PingFederate subject tokens and one for SPIFFE actor tokens. The subject token processor validates OAuth access tokens issued by the POC PingFederate server to the portal and agent audiences. The actor token processor validates the SPIRE JWT-SVID sent by the portal or agent workload.
+
+1. Go to **Authentication > Token Exchange > Token Processors**.
+2. Click **Create New Instance**.
+3. Create the subject token processor:
+   - Choose a stable **Name** and **ID**, for example `poc-pf-access-token-processor`.
+   - For **Type**, choose **JWT Token Processor 2.0**.
+   - On **Instance Configuration**, add an issuer entry:
+     - **Issuer**: the `iss` value in the PingFederate subject tokens. This must match exactly.
+     - **JWKS URL**: the JWKS endpoint for that issuer, or paste the issuer JWKS directly if your environment cannot route to the JWKS URL.
+     - **Allowed Audiences**: add both subject-token audiences that can arrive at token exchange:
+       - `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/portal`, matching `API_OAUTH_CLIENT_ID`, for the browser token issued to the web portal.
+       - `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent`, matching `AGENT_OAUTH_CLIENT_ID`, for the token issued to the agent and later exchanged for the MCP token.
+   - Leave the default required-claims settings unless your POC tokens require a different policy. PingFederate defaults include audience and expiration validation for JWT Token Processor 2.0.
+   - On the extended contract, include:
+     - `subject`: the original user or workload subject.
+     - `act`: the existing actor chain claim from the inbound subject token. The browser token normally has no `act`; the agent token should have one from the first token exchange.
+   - Save the instance.
+4. Click **Create New Instance** again.
+5. Create the actor token processor:
+   - Choose a stable **Name** and **ID**, for example `spire-jwt-svid-token-processor`.
+   - For **Type**, choose **JWT Token Processor 2.0**.
+   - On **Instance Configuration**, add an issuer entry:
+     - **Issuer**: the issuer used by the SPIRE OIDC Discovery Provider for the `ping.demo` trust domain.
+     - **JWKS URL**: the SPIRE OIDC Discovery JWKS endpoint reachable from PingFederate, or paste the SPIRE JWKS directly if your environment cannot route to it.
+     - **Allowed Audiences**: `pingfederate-token-exchange`, matching `SPIFFE_JWT_SVID_AUDIENCE`.
+   - Keep audience and expiration validation enabled.
+   - On the extended contract, keep only the default `subject` attribute for now. The actor token subject is the SPIFFE ID, for example `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/portal`.
+   - Save the instance.
+
+The subject Token Processor validates the incoming PingFederate access token and extracts any previous `act` chain. The actor Token Processor validates the current workload JWT-SVID after the Token Exchange Processor Policy selects both processors.
+
+### Token Exchange Processor Policy
+
+Create one Token Exchange Processor Policy for the POC token exchange path.
+
+1. Go to **Applications > Token Exchange > Processor Policies**.
+2. Click **Add Processor Policy**.
+3. Enter the **Policy ID** and **Name**.
+4. Select **Actor Token Required**, then click **Next**.
+5. On **Attribute Contract**, include:
+   - `subject`: the end-user or original subject from the inbound subject token.
+   - `subject_act`: the previous `act` claim from the inbound subject token.
+6. On **Token Processor Mapping**, click **Map New Token Processor**.
+7. On **Token Types**:
+   - From **Subject Token Processor**, select the JWT Token Processor 2.0 instance created for PingFederate-issued OAuth access tokens.
+   - In **Subject Token Type**, enter `urn:ietf:params:oauth:token-type:access_token`.
+   - From **Actor Token Processor**, select the JWT Token Processor 2.0 instance created for SPIRE JWT-SVIDs.
+   - In **Actor Token Type**, enter `urn:ietf:params:oauth:token-type:jwt`.
+8. Skip additional **Attribute Sources & User Lookup** configuration for now.
+9. On **Contract Fulfillment**:
+   - Map `subject` from the subject token processor `subject`.
+   - Map `subject_act` from the subject token processor `act`.
+10. Leave issuance criteria and the rest of the wizard at defaults unless your POC needs extra restrictions.
+11. Review, finish, and save the policy.
+
+The application sends a SPIFFE JWT-SVID as `actor_token` in the token exchange request. The TEPP validates that current actor token separately. The `tepp.subject_act` value is the previous actor chain from the inbound subject token and is used by the access token mapping to build the next `act` claim.
+
+### Access Token Manager For Token Exchange
+
+Create or update a JWT access token manager for tokens issued by token exchange.
+
+1. Go to **Applications > OAuth > Access Token Management**.
+2. Select the access token manager that will issue exchanged tokens, or click **Create New Instance**.
+3. On **Resource URI**, add the resource values that the services send in token exchange requests and later expect as token audiences:
+
+   | Exchanged token | Request `resource` value | Matching environment value |
+   | --- | --- | --- |
+   | Portal-to-agent token | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent` | `AGENT_OAUTH_CLIENT_ID` |
+   | Agent-to-MCP token | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/mcp` | `MCP_AUDIENCE` |
+
+   PingFederate uses these resource URIs to select this access token manager when a token exchange request includes the `resource` parameter. The values must match the resource servers' expected `aud` values.
+4. On **Access Token Attribute Contract**, include the normal claims your token manager needs, and add:
+   - `act`: actor chain claim populated from the token exchange mapping.
+5. Ensure the token manager issues JWT access tokens with:
+   - `sub` or equivalent subject from the mapped processor policy subject.
+   - `aud` matching the requested resource URI, either through the token manager resource/audience settings or the access token mapping used by your ATM.
+   - `scope` containing the requested same-or-narrower customer scopes.
+   - `act` from the mapping below.
+6. Save the access token manager.
+
+### Access Token Mapping
+
+Map the Token Exchange Processor Policy contract into the access token manager that issues exchanged OAuth access tokens.
+
+1. Go to **Applications > OAuth > Access Token Mapping**.
+2. In **Context**, select the Token Exchange Processor Policy created above.
+3. In **Access Token Manager**, select the access token manager that will issue tokens through token exchange.
+4. Click **Add Mapping**.
+5. Skip additional **Attribute Sources & User Lookup** configuration for now.
+6. On **Contract Fulfillment**, map:
+   - The access token manager contract `subject` or `sub` attribute from the processor policy `subject`.
+   - The access token manager contract `act` attribute from an **Expression** value using this OGNL script:
+
+     ```text
+     #curr = #this.get("context.ClientId") != null ? #this.get("context.ClientId").toString() : "",
+     #prev = #this.get("tepp.subject_act"),
+     #agentType = #this.get("extproperties.AgentType") != null ? #this.get("extproperties.AgentType").toString() : null,
+     #clientType = #this.get("extproperties.ClientType") != null ? #this.get("extproperties.ClientType").toString() : null,
+     #out = new java.util.LinkedHashMap(),
+     #out.put("sub", #curr),
+     (#agentType != null && #agentType.length() > 0) ? #out.put("agent_type", #agentType) : true,
+     (#clientType != null && #clientType.length() > 0) ? #out.put("client_type", #clientType) : true,
+     (#prev != null && #prev.getObjectValue() != null) ? #out.put("act", #prev.getObjectValue()) : true,
+     #out
+     ```
+
+     The expression sets the current actor to `context.ClientId`, optionally includes `AgentType` and `ClientType` from client extended properties, and nests the prior SPIFFE actor from `tepp.subject_act` under `act`.
+7. Leave issuance criteria and the rest of the wizard at defaults unless your POC needs extra restrictions.
+8. Review, finish, and save the mapping.
+
+If the selected access token manager contract requires additional fields such as `iss`, `aud`, or custom claims, map those according to your access token manager configuration. The minimum POC mapping is the processor policy `subject` into the token subject and the `act` expression above into the token actor claim.
+
+### OAuth Client Token Exchange Enablement
+
+Enable Token Exchange on each OAuth client that sends token exchange requests. In this demo, that means the workload token-exchange clients used by the portal and agent.
 
 Configure token exchange clients for the workloads:
 
-| Workload | Client ID | Allowed actor SPIFFE ID | Requested audience | Requested scopes |
-| --- | --- | --- | --- | --- |
-| Portal | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/portal` | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/portal` | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent` | `customer:profile:read customer:payments:read` |
-| Agent | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent` | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent` | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/mcp` | `customer:profile:read customer:payments:read` |
+| Workload | Client ID | Requested resource | Requested scopes |
+| --- | --- | --- | --- |
+| Portal | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/portal` | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent` | `customer:profile:read customer:payments:read` |
+| Agent | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/agent` | `spiffe://ping.demo/ns/spiffe-token-exchange-demo/sa/mcp` | `customer:profile:read customer:payments:read` |
 
-The demo supports token-exchange clients with client authentication method `none`. In that mode the services send `client_id` in the form body and do not send an OAuth client secret or Basic authorization header. The authorization decision must come from validating the `actor_token` JWT-SVID and binding its SPIFFE ID to the allowed client ID, requested audience, and requested scopes.
+For each client:
 
-### SPIRE JWT-SVID Trust
+1. Go to **Applications > OAuth > Clients**.
+2. Open the client from the **Client ID** column.
+3. In **Allowed Grant Types**, select **Token Exchange**.
+4. In **Token Exchange**, select the Token Exchange Processor Policy created above from the **Processor Policy** list.
+5. If your PingFederate client configuration exposes extended properties, set values consumed by the `act` expression:
+   - `AgentType`: optional descriptor for workload clients that act as agents.
+   - `ClientType`: optional descriptor for client category.
+6. Save the client.
 
-Configure PingFederate to validate SPIRE JWT-SVIDs used as token-exchange `actor_token` values:
-
-- Trust the SPIRE JWT issuer for the `ping.demo` trust domain.
-- Validate the JWT-SVID signature using the SPIRE JWKS for that trust domain.
-- Require the JWT-SVID audience to match `SPIFFE_JWT_SVID_AUDIENCE`, for example `pingfederate-token-exchange`.
-- Map the JWT-SVID subject to the SPIFFE ID.
-- Authorize only the portal and agent SPIFFE IDs for token exchange.
+The demo supports token-exchange clients with client authentication method `none`. In that mode the services send `client_id` in the form body and do not send an OAuth client secret or Basic authorization header. For a production policy, bind token exchange authorization to workload identity, allowed resource, and allowed scopes rather than relying only on public client IDs.
 
 The token exchange request shape is:
 
